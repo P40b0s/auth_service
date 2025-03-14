@@ -1,6 +1,6 @@
 [package]
-name = "axum_auth_service"
-version = "0.1.0"
+name = "auth_service"
+version = "0.1.1"
 edition = "2024"
 
 [dependencies]
@@ -12,7 +12,7 @@ logger = { version="*", git="https://github.com/P40b0s/logger.git"}
 jwt_authentification = { version="*", git="https://github.com/P40b0s/jwt_authentification.git"}
 thiserror="2.0.12"
 sqlx= {version = "0.8.3", features = ["sqlite", "runtime-tokio"] }
-uuid= {version="1.15.1", features = ["v7"] }
+uuid= {version="1.16.0", features = ["v7"] }
 axum= {version = "0.8.1", features = ["tokio", "json", "query"]}
 #слой для управления кукисами
 axum-extra={version = "0.10.0", features = ["cookie"]}
