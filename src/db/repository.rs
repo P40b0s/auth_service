@@ -1,8 +1,7 @@
-use std::{clone, ops::Deref, sync::Arc};
+use std::sync::Arc;
 use sqlx::{query::Query, sqlite::{SqliteArguments, SqliteRow}, FromRow, Row, Sqlite, SqlitePool};
 use utilites::Date;
-
-use crate::{error::Error, jwt_service::{self, JwtService}, role::Role, AuthInfo};
+use crate::{error::Error, jwt_service::JwtService, AuthInfo};
 
 #[derive(Clone)]
 pub struct Repository
@@ -32,13 +31,13 @@ impl Repository
 }
 pub trait IRepository
 {
-    async fn create_session<T: ToString>(&self, id: &uuid::Uuid, role: &Role, refresh_key_lifetime_days: i64, ip_addr: &str, fingerprint: &str, audience: Option<&[T]>) -> Result<AuthInfo, Error>;
-    async fn get_session(&self, session_id: &uuid::Uuid) -> Result<UserSessionDbo, Error>;
-    async fn insert_or_replace_session(&self, session: UserSessionDbo) -> Result<(), Error>;
-    async fn sessions_count(&self, id: &uuid::Uuid) -> Result<u32, Error>;
-    async fn delete_all_sessions(&self, id: &uuid::Uuid) -> Result<u64, Error>;
-    async fn delete_session(&self, session_id: &uuid::Uuid) -> Result<(), Error>;
-    async fn update_access(&self, session_id: &uuid::Uuid, refresh_key_lifetime_days: i64) -> Result<AuthInfo, Error>;
+    fn create_session<R: ToString + Copy + Send, T: ToString + Sync>(&self, id: &uuid::Uuid, role: R, refresh_key_lifetime_days: i64, ip_addr: &str, fingerprint: &str, audience: Option<&[T]>) -> impl std::future::Future<Output = Result<AuthInfo, Error>> + Send;
+    fn get_session(&self, session_id: &uuid::Uuid) -> impl std::future::Future<Output = Result<UserSessionDbo, Error>> + Send;
+    fn insert_or_replace_session(&self, session: UserSessionDbo) -> impl std::future::Future<Output = Result<(), Error>> + Send;
+    fn sessions_count(&self, id: &uuid::Uuid) -> impl std::future::Future<Output = Result<u32, Error>> + Send;
+    fn delete_all_sessions(&self, id: &uuid::Uuid) -> impl std::future::Future<Output = Result<u64, Error>> + Send;
+    fn delete_session(&self, session_id: &uuid::Uuid) -> impl std::future::Future<Output = Result<(), Error>> + Send;
+    fn update_access(&self, session_id: &uuid::Uuid, refresh_key_lifetime_days: i64) -> impl std::future::Future<Output = Result<AuthInfo, Error>> + Send;
 }
 
 
@@ -111,7 +110,7 @@ pub struct UserSessionDbo
     pub session_id: uuid::Uuid,
     pub logged_in: Date,
     pub audience: Vec<String>,
-    pub role: Role,
+    pub role: String,
     pub key_expiration_time: Date,
     pub ip_addr: String,
     pub fingerprint: String
@@ -125,7 +124,7 @@ impl UserSessionDbo
         .bind(self.session_id.to_string())
         .bind(self.logged_in.to_string())
         .bind(serde_json::to_string(&self.audience).unwrap())
-        .bind(self.role.as_ref())
+        .bind(self.role.as_str())
         .bind(self.key_expiration_time.to_string())
         .bind(&self.ip_addr)
         .bind(&self.fingerprint)
@@ -151,7 +150,7 @@ impl FromRow<'_, SqliteRow> for UserSessionDbo
             session_id: session_id.parse().unwrap(),
             logged_in: Date::parse(logged_in).unwrap(),
             audience: serde_json::from_str(audience).unwrap(),
-            role: role.parse().unwrap(),
+            role: role.to_owned(),
             key_expiration_time: Date::parse(key_expiration_time).unwrap(),
             ip_addr: ip_addr.to_owned(),
             fingerprint
@@ -162,84 +161,18 @@ impl FromRow<'_, SqliteRow> for UserSessionDbo
 
 impl IRepository for Repository
 {
-    async fn create_session<T: ToString>(&self, id: &uuid::Uuid, role: &Role, refresh_key_lifetime_days: i64, ip_addr: &str, fingerprint: &str, audience: Option<&[T]>) -> Result<AuthInfo, Error>
+    fn create_session<R: ToString + Copy + Send, T: ToString + Sync>(&self, id: &uuid::Uuid, role: R, refresh_key_lifetime_days: i64, ip_addr: &str, fingerprint: &str, audience: Option<&[T]>) -> impl std::future::Future<Output = Result<AuthInfo, Error>> + Send
     {
-        let connection = Arc::clone(&self.connection);
-        let audience = audience.unwrap_or(&Vec::new()).iter().map(|a| a.to_string()).collect();
-        let sql = ["SELECT ", &UserSessionTable::get_all(), " FROM sessions WHERE ", UserSessionTable::Id.as_ref(), " = $1 ORDER BY ", UserSessionTable::LoggedIn.as_ref()].concat();
-        let mut current_sessions = sqlx::query_as::<_, UserSessionDbo>(&sql)
-        .bind(id.to_string())
-        .fetch_all(&*connection).await?;
-        //sessions for current user not exists
-        if current_sessions.is_empty()
+        Box::pin(async move 
         {
-            let key = self.jwt_service.gen_key(id, role, &audience).await;
-            let session = new_session(id, role, refresh_key_lifetime_days, ip_addr, fingerprint, audience);
-            let session_id = session.session_id.to_string();
-            let _ = self.insert_or_replace_session(session).await?;
-            Ok(AuthInfo
-            {
-                access_key: key,
-                session_key: session_id
-            })
-        }
-        //sessions count bigger than 3, replace older session with updated session
-        else if current_sessions.len() > self.max_sessions_count as usize
-        {
-            let old_session = current_sessions.swap_remove(0);
-            //if fingerprint equalis
-            if let Some(mut session) = current_sessions.into_iter().find(|f|f.fingerprint == fingerprint)
-            {
-                let key = self.jwt_service.gen_key(id, role, &audience).await;
-                session.ip_addr = ip_addr.to_owned();
-                session.logged_in = Date::now();
-                session.role = role.to_owned();
-                session.key_expiration_time = Date::now().add_minutes(refresh_key_lifetime_days*60*24);
-                session.audience = audience;
-                let session_id = session.session_id.to_string();
-                let _ = self.insert_or_replace_session(session).await?;
-                Ok(AuthInfo
-                {
-                    access_key: key,
-                    session_key: session_id
-                })
-            }
-            else 
-            {
-                let key = self.jwt_service.gen_key(id, role, &audience).await;
-                self.delete_session(&old_session.session_id).await?;
-                let session = new_session(id, role, refresh_key_lifetime_days, ip_addr, fingerprint, audience);
-                let session_id = session.session_id.to_string();
-                let _ = self.insert_or_replace_session(session).await?;
-                logger::warn!("Превышено максимальное количество одновременных сессий `{}` сессия `{}` заменена на {}", self.max_sessions_count, &old_session.session_id.to_string(), &session_id);
-                Ok(AuthInfo
-                {
-                    access_key: key,
-                    session_key: session_id
-                })
-            }
-        }
-        else 
-        {
-            //sessions with equalis fingerprint is found, update session and return new keys
-            if let Some(mut session) = current_sessions.into_iter().find(|f|f.fingerprint == fingerprint)
-            {
-                let key = self.jwt_service.gen_key(id, role, &audience).await;
-                session.ip_addr = ip_addr.to_owned();
-                session.logged_in = Date::now();
-                session.role = role.to_owned();
-                session.key_expiration_time = Date::now().add_minutes(refresh_key_lifetime_days*60*24);
-                session.audience = audience;
-                let session_id = session.session_id.to_string();
-                let _ = self.insert_or_replace_session(session).await?;
-                Ok(AuthInfo
-                {
-                    access_key: key,
-                    session_key: session_id
-                })
-            }
-            //add new session for this user
-            else 
+            let connection = Arc::clone(&self.connection);
+            let audience = audience.unwrap_or(&Vec::new()).iter().map(|a| a.to_string()).collect();
+            let sql = ["SELECT ", &UserSessionTable::get_all(), " FROM sessions WHERE ", UserSessionTable::Id.as_ref(), " = $1 ORDER BY ", UserSessionTable::LoggedIn.as_ref()].concat();
+            let mut current_sessions = sqlx::query_as::<_, UserSessionDbo>(&sql)
+            .bind(id.to_string())
+            .fetch_all(&*connection).await?;
+            //sessions for current user not exists
+            if current_sessions.is_empty()
             {
                 let key = self.jwt_service.gen_key(id, role, &audience).await;
                 let session = new_session(id, role, refresh_key_lifetime_days, ip_addr, fingerprint, audience);
@@ -251,7 +184,76 @@ impl IRepository for Repository
                     session_key: session_id
                 })
             }
-        }
+            //sessions count bigger than 3, replace older session with updated session
+            else if current_sessions.len() > self.max_sessions_count as usize
+            {
+                let old_session = current_sessions.swap_remove(0);
+                //if fingerprint equalis
+                if let Some(mut session) = current_sessions.into_iter().find(|f|f.fingerprint == fingerprint)
+                {
+                    let key = self.jwt_service.gen_key(id, role, &audience).await;
+                    session.ip_addr = ip_addr.to_owned();
+                    session.logged_in = Date::now();
+                    session.role = role.to_string();
+                    session.key_expiration_time = Date::now().add_minutes(refresh_key_lifetime_days*60*24);
+                    session.audience = audience;
+                    let session_id = session.session_id.to_string();
+                    let _ = self.insert_or_replace_session(session).await?;
+                    Ok(AuthInfo
+                    {
+                        access_key: key,
+                        session_key: session_id
+                    })
+                }
+                else 
+                {
+                    let key = self.jwt_service.gen_key(id, role, &audience).await;
+                    self.delete_session(&old_session.session_id).await?;
+                    let session = new_session(id, role, refresh_key_lifetime_days, ip_addr, fingerprint, audience);
+                    let session_id = session.session_id.to_string();
+                    let _ = self.insert_or_replace_session(session).await?;
+                    logger::warn!("Превышено максимальное количество одновременных сессий `{}` сессия `{}` заменена на {}", self.max_sessions_count, &old_session.session_id.to_string(), &session_id);
+                    Ok(AuthInfo
+                    {
+                        access_key: key,
+                        session_key: session_id
+                    })
+                }
+            }
+            else 
+            {
+                //sessions with equalis fingerprint is found, update session and return new keys
+                if let Some(mut session) = current_sessions.into_iter().find(|f|f.fingerprint == fingerprint)
+                {
+                    let key = self.jwt_service.gen_key(id, role, &audience).await;
+                    session.ip_addr = ip_addr.to_owned();
+                    session.logged_in = Date::now();
+                    session.role = role.to_string();
+                    session.key_expiration_time = Date::now().add_minutes(refresh_key_lifetime_days*60*24);
+                    session.audience = audience;
+                    let session_id = session.session_id.to_string();
+                    let _ = self.insert_or_replace_session(session).await?;
+                    Ok(AuthInfo
+                    {
+                        access_key: key,
+                        session_key: session_id
+                    })
+                }
+                //add new session for this user
+                else 
+                {
+                    let key = self.jwt_service.gen_key(id, role, &audience).await;
+                    let session = new_session(id, role, refresh_key_lifetime_days, ip_addr, fingerprint, audience);
+                    let session_id = session.session_id.to_string();
+                    let _ = self.insert_or_replace_session(session).await?;
+                    Ok(AuthInfo
+                    {
+                        access_key: key,
+                        session_key: session_id
+                    })
+                }
+            }
+        })
     }
     //update access key + current session lifetime
     async fn update_access(&self, session_id: &uuid::Uuid, refresh_key_lifetime_days: i64) -> Result<AuthInfo, Error>
@@ -274,57 +276,73 @@ impl IRepository for Repository
             Err(Error::SessionExpired)
         }
     }
-    async fn get_session(&self, session_id: &uuid::Uuid) -> Result<UserSessionDbo, Error>
+    fn get_session(&self, session_id: &uuid::Uuid) -> impl std::future::Future<Output = Result<UserSessionDbo, Error>> + Send
     {
-        let connection = Arc::clone(&self.connection);
-        let sql = ["SELECT ", &UserSessionTable::get_all(), " FROM sessions WHERE ", UserSessionTable::SessionId.as_ref(), " = $1"].concat();
-        let  current_session = sqlx::query_as::<_, UserSessionDbo>(&sql)
-        .bind(session_id.to_string())
-        .fetch_one(&*connection).await?;
-        Ok(current_session)
+        Box::pin(async move 
+        {
+            let connection = Arc::clone(&self.connection);
+            let sql = ["SELECT ", &UserSessionTable::get_all(), " FROM sessions WHERE ", UserSessionTable::SessionId.as_ref(), " = $1"].concat();
+            let  current_session = sqlx::query_as::<_, UserSessionDbo>(&sql)
+            .bind(session_id.to_string())
+            .fetch_one(&*connection).await?;
+            Ok(current_session)
+        })
+        
     }
-    async fn insert_or_replace_session(&self, session: UserSessionDbo) -> Result<(), Error>
+    fn insert_or_replace_session(&self, session: UserSessionDbo) -> impl std::future::Future<Output = Result<(), Error>> + Send
     {
-        let connection = Arc::clone(&self.connection);
-        let sql = ["INSERT OR REPLACE INTO sessions (", &UserSessionTable::get_all(), ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"].concat();
-        let _ = session.bind_all(&sql)
-        .execute(&*connection).await?;
-        Ok(())
+        Box::pin(async move 
+        {
+            let connection = Arc::clone(&self.connection);
+            let sql = ["INSERT OR REPLACE INTO sessions (", &UserSessionTable::get_all(), ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"].concat();
+            let _ = session.bind_all(&sql)
+            .execute(&*connection).await?;
+            Ok(())
+        })
     }
 
-    async fn sessions_count(&self, id: &uuid::Uuid) -> Result<u32, Error>
+    fn sessions_count(&self, id: &uuid::Uuid) -> impl std::future::Future<Output = Result<u32, Error>> + Send
     {
-        let connection = Arc::clone(&self.connection);
-        let sql = ["SELECT COUNT(*) FROM sessions WHERE ", UserSessionTable::Id.as_ref(), " = $1"].concat();
-        let count: u32 = sqlx::query_scalar(&sql)
-        .bind(id.to_string())
-        .fetch_one(&*connection).await?;
-        Ok(count)
+        Box::pin(async move 
+        {
+            let connection = Arc::clone(&self.connection);
+            let sql = ["SELECT COUNT(*) FROM sessions WHERE ", UserSessionTable::Id.as_ref(), " = $1"].concat();
+            let count: u32 = sqlx::query_scalar(&sql)
+            .bind(id.to_string())
+            .fetch_one(&*connection).await?;
+            Ok(count)
+        })
     }
-    async fn delete_all_sessions(&self, id: &uuid::Uuid) -> Result<u64, Error>
+    fn delete_all_sessions(&self, id: &uuid::Uuid) -> impl std::future::Future<Output = Result<u64, Error>> + Send
     {
-        let connection = Arc::clone(&self.connection);
-        let sql = ["DELETE FROM sessions WHERE ", UserSessionTable::Id.as_ref(), " = $1"].concat();
-        let count = sqlx::query(&sql)
-        .bind(id.to_string())
-        .execute(&*connection).await?;
-        let count = count.rows_affected();
-        logger::info!("Для `{}` удалено `{}` сессий", id.to_string(), count);
-        Ok(count)
+        Box::pin(async move 
+        {
+            let connection = Arc::clone(&self.connection);
+            let sql = ["DELETE FROM sessions WHERE ", UserSessionTable::Id.as_ref(), " = $1"].concat();
+            let count = sqlx::query(&sql)
+            .bind(id.to_string())
+            .execute(&*connection).await?;
+            let count = count.rows_affected();
+            logger::info!("Для `{}` удалено `{}` сессий", id.to_string(), count);
+            Ok(count)
+        })
     }
-    async fn delete_session(&self, session_id: &uuid::Uuid) -> Result<(), Error>
+    fn delete_session(&self, session_id: &uuid::Uuid) -> impl std::future::Future<Output = Result<(), Error>> + Send
     {
-        let connection = Arc::clone(&self.connection);
-        let sql = ["DELETE FROM sessions WHERE ", UserSessionTable::SessionId.as_ref(), " = $1"].concat();
-        let _ = sqlx::query(&sql)
-        .bind(session_id.to_string())
-        .execute(&*connection).await?;
-        logger::info!("Удалена сессия `{}`", session_id.to_string());
-        Ok(())
+        Box::pin(async move 
+        {
+            let connection = Arc::clone(&self.connection);
+            let sql = ["DELETE FROM sessions WHERE ", UserSessionTable::SessionId.as_ref(), " = $1"].concat();
+            let _ = sqlx::query(&sql)
+            .bind(session_id.to_string())
+            .execute(&*connection).await?;
+            logger::info!("Удалена сессия `{}`", session_id.to_string());
+            Ok(())
+        })
     }
 }
 
-fn new_session(id: &uuid::Uuid, role: &Role, refresh_key_lifetime_days: i64, ip_addr: &str, fingerprint: &str, audience: Vec<String>) -> UserSessionDbo
+fn new_session<R: ToString>(id: &uuid::Uuid, role: R, refresh_key_lifetime_days: i64, ip_addr: &str, fingerprint: &str, audience: Vec<String>) -> UserSessionDbo
 {
     
     UserSessionDbo
@@ -333,7 +351,7 @@ fn new_session(id: &uuid::Uuid, role: &Role, refresh_key_lifetime_days: i64, ip_
         session_id: uuid::Uuid::now_v7(),
         logged_in: Date::now(),
         audience,
-        role: role.to_owned(),
+        role: role.to_string(),
         key_expiration_time: Date::now().add_minutes(refresh_key_lifetime_days*60*24),
         ip_addr: ip_addr.to_owned(),
         fingerprint: fingerprint.to_owned()
