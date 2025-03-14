@@ -80,7 +80,8 @@ mod tests
         let ip_addr = String::from("182.5.202.002");
         let fingerprint = "02_to_05_replace".to_owned();
         let audience = &["https://google.com", "https://stackoverflow.com", "https://chat.deepseek.com"];
-        let _ = repository.create_session(&user_id, &role, refresh_key_lifetime_days, &ip_addr, &fingerprint, Some(audience)).await;
+        let keys = repository.create_session(&user_id, &role, refresh_key_lifetime_days, &ip_addr, &fingerprint, Some(audience)).await.unwrap();
+        logger::info!("Получены клчюи {:?}", keys);
     }
    
     #[tokio::test]
@@ -97,5 +98,16 @@ mod tests
         let audience = &["https://google.com", "https://stackoverflow.com", "https://chat.deepseek.com"];
         let session = repository.get_session(&session_id).await.unwrap();
         assert_eq!(session.audience[1], "https://stackoverflow.com");
+    }
+
+    #[tokio::test]
+    async fn test_update_keys()
+    {
+        let _ = logger::StructLogger::new_default();
+        let jwt_service = JwtService::new();
+        let repository = super::Repository::new(jwt_service.clone(), 3).await.unwrap();
+        let session_id: uuid::Uuid = "01959461-14cc-76f0-b3bb-ab45c01dada1".parse().unwrap();
+        let keys = repository.update_access(&session_id, 2).await.unwrap();
+        logger::info!("обновлены клчюи {:?}", keys);
     }
 }

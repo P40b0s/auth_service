@@ -277,7 +277,7 @@ impl IRepository for Repository
     async fn get_session(&self, session_id: &uuid::Uuid) -> Result<UserSessionDbo, Error>
     {
         let connection = Arc::clone(&self.connection);
-        let sql = ["SELECT ", &UserSessionTable::get_all(), " FROM sessions WHERE ", UserSessionTable::SessionId.as_ref(), " = $1 ORDER BY ", UserSessionTable::LoggedIn.as_ref()].concat();
+        let sql = ["SELECT ", &UserSessionTable::get_all(), " FROM sessions WHERE ", UserSessionTable::SessionId.as_ref(), " = $1"].concat();
         let  current_session = sqlx::query_as::<_, UserSessionDbo>(&sql)
         .bind(session_id.to_string())
         .fetch_one(&*connection).await?;
