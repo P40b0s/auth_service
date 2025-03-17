@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use utilites::http::{AUTHORIZATION, HeaderMap};
 use jwt_authentification::{Claims, JWT};

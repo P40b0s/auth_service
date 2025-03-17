@@ -2,6 +2,7 @@ mod user_service;
 mod db;
 pub use db::{IAuthorizationRepository, AuthorizationRepository, UserSessionDbo};
 mod error;
+pub use error::Error;
 mod role;
 mod auth_route;
 mod jwt_service;
