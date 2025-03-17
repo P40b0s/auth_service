@@ -1,26 +1,26 @@
 mod connection;
 mod repository;
-pub use repository::{Repository, IRepository};
+pub use repository::{AuthorizationRepository, IAuthorizationRepository, UserSessionDbo};
 
 #[cfg(test)]
 mod tests
 {
     use crate::{jwt_service::JwtService, role::Role};
 
-    use super::IRepository;
+    use super::IAuthorizationRepository;
     const USER_ID: &str = "01959414-c7e9-76c2-a84f-5aa1443b1829";
     const SESSION_ID: &str = "01959414-c7ed-7c93-b660-372d5b611c2c";
     #[tokio::test]
     async fn test_init_repo()
     {
         let jwt_service = JwtService::new();
-        let repository = super::Repository::new(jwt_service.clone(), 3).await.unwrap();
+        let repository = super::AuthorizationRepository::new(3).await.unwrap();
     }
     #[tokio::test]
     async fn test_add_session()
     {
         let jwt_service = JwtService::new();
-        let repository = super::Repository::new(jwt_service.clone(), 3).await.unwrap();
+        let repository = super::AuthorizationRepository::new(3).await.unwrap();
         let user_id: uuid::Uuid = USER_ID.parse().unwrap();
         let role = Role::NonPrivileged;
         let refresh_key_lifetime_days = 1;
@@ -33,7 +33,7 @@ mod tests
     async fn test_add_2_session()
     {
         let jwt_service = JwtService::new();
-        let repository = super::Repository::new(jwt_service.clone(), 3).await.unwrap();
+        let repository = super::AuthorizationRepository::new(3).await.unwrap();
         let user_id: uuid::Uuid = USER_ID.parse().unwrap();
         let role = Role::NonPrivileged;
         let refresh_key_lifetime_days = 1;
@@ -46,7 +46,7 @@ mod tests
     async fn test_add_3_session()
     {
         let jwt_service = JwtService::new();
-        let repository = super::Repository::new(jwt_service.clone(), 3).await.unwrap();
+        let repository = super::AuthorizationRepository::new(3).await.unwrap();
         let user_id: uuid::Uuid = USER_ID.parse().unwrap();
         let role = Role::NonPrivileged;
         let refresh_key_lifetime_days = 1;
@@ -59,7 +59,7 @@ mod tests
     async fn test_add_4_session()
     {
         let jwt_service = JwtService::new();
-        let repository = super::Repository::new(jwt_service.clone(), 3).await.unwrap();
+        let repository = super::AuthorizationRepository::new(3).await.unwrap();
         let user_id: uuid::Uuid = USER_ID.parse().unwrap();
         let role = Role::NonPrivileged;
         let refresh_key_lifetime_days = 1;
@@ -73,7 +73,7 @@ mod tests
     {
         let _ = logger::StructLogger::new_default();
         let jwt_service = JwtService::new();
-        let repository = super::Repository::new(jwt_service.clone(), 3).await.unwrap();
+        let repository = super::AuthorizationRepository::new(3).await.unwrap();
         let user_id: uuid::Uuid = USER_ID.parse().unwrap();
         let role = Role::NonPrivileged;
         let refresh_key_lifetime_days = 1;
@@ -88,7 +88,7 @@ mod tests
     async fn test_select_session()
     {
         let jwt_service = JwtService::new();
-        let repository = super::Repository::new(jwt_service.clone(), 3).await.unwrap();
+        let repository = super::AuthorizationRepository::new(3).await.unwrap();
         let session_id: uuid::Uuid = SESSION_ID.parse().unwrap();
         let user_id: uuid::Uuid = USER_ID.parse().unwrap();
         let role = Role::NonPrivileged;
@@ -105,9 +105,9 @@ mod tests
     {
         let _ = logger::StructLogger::new_default();
         let jwt_service = JwtService::new();
-        let repository = super::Repository::new(jwt_service.clone(), 3).await.unwrap();
+        let repository = super::AuthorizationRepository::new(3).await.unwrap();
         let session_id: uuid::Uuid = "01959461-14cc-76f0-b3bb-ab45c01dada1".parse().unwrap();
-        let keys = repository.update_access(&session_id, 2).await.unwrap();
+        let keys = repository.update_session_key(&session_id, 2).await.unwrap();
         logger::info!("обновлены клчюи {:?}", keys);
     }
 }
