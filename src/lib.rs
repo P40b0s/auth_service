@@ -5,8 +5,9 @@ mod error;
 mod role;
 mod auth_route;
 mod jwt_service;
-pub use jwt_service::{JwtService, AuthInfo};
+pub use jwt_service::JwtService;
 pub use uuid::Uuid;
 mod authorization_service;
+pub use authorization_service::AuthorizationService;
 
 

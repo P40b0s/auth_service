@@ -40,6 +40,7 @@ impl JwtService
         let data = guard.validator().validate(token)?;
         Ok(data.claims)
     }
+    //только и-за headera authorizatuiion тянуть сюда весь hyper неправильно
     pub async fn get_claims(&self, headers: HeaderMap) -> Result<Claims, Error>
     {
         match headers.get(AUTHORIZATION) 
@@ -58,11 +59,4 @@ impl JwtService
             }
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthInfo
-{
-    pub access_key: String,
-    pub session_key: String
 }
