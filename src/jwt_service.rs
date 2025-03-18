@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use utilites::http::{AUTHORIZATION, HeaderMap};
 use jwt_authentification::{Claims, JWT};
 use crate::error::Error;
 
@@ -33,7 +32,7 @@ impl JwtService
         
     }
     ///validate access key, validation will not be performed on roles and audience if they are empty
-    async fn validate<T: ToString>(&self, token: &str, roles: &[&str], audiences: &[T]) -> Result<Claims, Error>
+    pub async fn validate<T: ToString>(&self, token: &str, roles: &[&str], audiences: &[T]) -> Result<Claims, Error>
     {
         let guard = self.jwt.lock().await;
         let data = guard.validator().with_audience(audiences).with_roles(roles).validate(token)?;
