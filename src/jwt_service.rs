@@ -32,31 +32,26 @@ impl JwtService
         
     }
     ///validate access key, validation will not be performed on roles and audience if they are empty
-    pub async fn validate<T: ToString>(&self, token: &str, roles: &[&str], audiences: &[T]) -> Result<Claims, Error>
+    pub async fn validate<I, R, A>(&self, token: &str, roles: R, audiences: &[A]) -> Result<Claims, Error>
+    where 
+        I: AsRef<str>,
+        R: AsRef<[I]>,
+        A: ToString
     {
         let guard = self.jwt.lock().await;
-        let data = guard.validator().with_audience(audiences).with_roles(roles).validate(token)?;
-        //let data = guard.validator().validate(token)?;
+        let slice: &[I] = roles.as_ref();
+        let roles_str: Vec<&str> = slice.iter().map(|s| s.as_ref()).collect();
+        let data = guard.validator().with_audience(audiences).with_roles(&roles_str).validate(token)?;
         Ok(data.claims)
     }
-
-    // //только и-за headera authorizatuiion тянуть сюда весь hyper неправильно
-    // pub async fn get_claims(&self, headers: HeaderMap) -> Result<Claims, Error>
-    // {
-    //     match headers.get(AUTHORIZATION) 
-    //     {
-    //         Some(value) => 
-    //         {
-    //             //let token_str = value.to_str().unwrap_or("")[6..].replace("Bearer ", "");
-    //             let token_str = value.to_str().unwrap_or("")[7..].trim();
-    //             logger::info!("Проверка токена->{}", token_str);
-    //             let v = self.validate(&token_str).await?;
-    //             Ok(v)
-    //         },
-    //         None => 
-    //         {
-    //             Err(Error::AuthError("Отсуствует заголовок Authorization".to_owned()))
-    //         }
-    //     }
-    // }
 }
+
+// fn test()
+// {
+//     let s = JwtService::new();
+//     let v = vec![String::from("123"), String::from("321")];
+//     s.validate("123321", &v, &["123123", "321321"]);
+//     s.validate("123321", &["123123", "321321"], &["123123", "321321"]);
+//     let arc_v = Arc::new(v);
+//     s.validate("123321", &*arc_v, &["123123", "321321"]);
+// }
