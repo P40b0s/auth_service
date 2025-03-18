@@ -32,30 +32,32 @@ impl JwtService
         }
         
     }
-    ///проверка текущего access ключа, если валидация прошла успешно вернуться клеймы
-    async fn validate(&self, token: &str) -> Result<Claims, Error>
+    ///validate access key, validation will not be performed on roles and audience if they are empty
+    async fn validate<T: ToString>(&self, token: &str, roles: &[&str], audiences: &[T]) -> Result<Claims, Error>
     {
         let guard = self.jwt.lock().await;
-        let data = guard.validator().validate(token)?;
+        let data = guard.validator().with_audience(audiences).with_roles(roles).validate(token)?;
+        //let data = guard.validator().validate(token)?;
         Ok(data.claims)
     }
-    //только и-за headera authorizatuiion тянуть сюда весь hyper неправильно
-    pub async fn get_claims(&self, headers: HeaderMap) -> Result<Claims, Error>
-    {
-        match headers.get(AUTHORIZATION) 
-        {
-            Some(value) => 
-            {
-                //let token_str = value.to_str().unwrap_or("")[6..].replace("Bearer ", "");
-                let token_str = value.to_str().unwrap_or("")[7..].trim();
-                logger::info!("Проверка токена->{}", token_str);
-                let v = self.validate(&token_str).await?;
-                Ok(v)
-            },
-            None => 
-            {
-                Err(Error::AuthError("Отсуствует заголовок Authorization".to_owned()))
-            }
-        }
-    }
+
+    // //только и-за headera authorizatuiion тянуть сюда весь hyper неправильно
+    // pub async fn get_claims(&self, headers: HeaderMap) -> Result<Claims, Error>
+    // {
+    //     match headers.get(AUTHORIZATION) 
+    //     {
+    //         Some(value) => 
+    //         {
+    //             //let token_str = value.to_str().unwrap_or("")[6..].replace("Bearer ", "");
+    //             let token_str = value.to_str().unwrap_or("")[7..].trim();
+    //             logger::info!("Проверка токена->{}", token_str);
+    //             let v = self.validate(&token_str).await?;
+    //             Ok(v)
+    //         },
+    //         None => 
+    //         {
+    //             Err(Error::AuthError("Отсуствует заголовок Authorization".to_owned()))
+    //         }
+    //     }
+    // }
 }
