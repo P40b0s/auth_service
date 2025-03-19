@@ -1092,7 +1092,7 @@ dependencies = [
 [[package]]
 name = "jwt_authentification"
 version = "0.1.0"
-source = "git+https://github.com/P40b0s/jwt_authentification.git#10490eab6e4b09d21761d87b82d22be03e56bb57"
+source = "git+https://github.com/P40b0s/jwt_authentification.git#2535434409d78f677c878f398aee6f6cd812d9d5"
 dependencies = [
  "jsonwebtoken",
  "logger 0.1.2 (git+https://github.com/P40b0s/logger.git?branch=main)",
