@@ -41,6 +41,9 @@ mod tests
         let fingerprint = "02".to_owned();
         let audience = &["https://google.com", "https://stackoverflow.com", "https://chat.deepseek.com"];
         let _ = repository.create_session(&user_id, &role, refresh_key_lifetime_days, &ip_addr, &fingerprint, Some(audience)).await;
+        //using in dyn-compatible...
+        //let audience: &[Box<dyn ToString + Sync>] = &[Box::new("https://google.com"), Box::new("https://stackoverflow.com"), Box::new("https://chat.deepseek.com")];
+        //let _ = repository.create_session(&user_id, Box::new(&role), refresh_key_lifetime_days, &ip_addr, &fingerprint, Some(audience)).await;
     }
     #[tokio::test]
     async fn test_add_3_session()
