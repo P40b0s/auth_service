@@ -13,6 +13,8 @@ pub enum Error
     AuthError(String),
 	#[error("Время сессии закончилось, необходимо зайти в систему заново")]
 	SessionExpired,
+    #[error("Сессия не найдена")]
+	SessionNotFound,
     #[error(transparent)]
     JwtError(#[from] jwt_authentification::JwtError)
 }

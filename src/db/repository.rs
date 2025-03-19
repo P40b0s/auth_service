@@ -258,8 +258,16 @@ impl IAuthorizationRepository for AuthorizationRepository
             let sql = ["SELECT ", &UserSessionTable::get_all(), " FROM sessions WHERE ", UserSessionTable::SessionId.as_ref(), " = $1"].concat();
             let  current_session = sqlx::query_as::<_, UserSessionDbo>(&sql)
             .bind(session_id.to_string())
-            .fetch_one(&*connection).await?;
-            Ok(current_session)
+            .fetch_one(&*connection).await;
+            if let Ok(session) = current_session
+            {
+                Ok(session)
+            }
+            else 
+            {
+                Err(Error::SessionNotFound)
+            }
+            
         })
         
     }
