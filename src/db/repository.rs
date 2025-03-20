@@ -31,8 +31,8 @@ impl AuthorizationRepository
 pub trait IAuthorizationRepository
 {
     fn create_session<R: ToString + Copy + Send, T: ToString + Sync>(&self, id: &uuid::Uuid, role: R, refresh_key_lifetime_days: i64, ip_addr: &str, fingerprint: &str, audience: Option<&[T]>) -> impl std::future::Future<Output = Result<uuid::Uuid, Error>> + Send;
-    fn get_session(&self, session_id: &uuid::Uuid) -> impl std::future::Future<Output = Result<UserSessionDbo, Error>> + Send;
-    fn insert_or_replace_session(&self, session: UserSessionDbo) -> impl std::future::Future<Output = Result<(), Error>> + Send;
+    fn get_session(&self, session_id: &uuid::Uuid) -> impl std::future::Future<Output = Result<Session, Error>> + Send;
+    fn insert_or_replace_session(&self, session: Session) -> impl std::future::Future<Output = Result<(), Error>> + Send;
     fn sessions_count(&self, id: &uuid::Uuid) -> impl std::future::Future<Output = Result<u32, Error>> + Send;
     fn delete_all_sessions(&self, id: &uuid::Uuid) -> impl std::future::Future<Output = Result<u64, Error>> + Send;
     fn delete_session(&self, session_id: &uuid::Uuid) -> impl std::future::Future<Output = Result<(), Error>> + Send;
@@ -119,7 +119,7 @@ pub struct UserSessionDbo
 
 impl UserSessionDbo
 {
-    pub fn bind_all<'a>(&'a self, sql: &'a str) -> Query<'a, Sqlite, SqliteArguments<'a>>
+    fn bind_all<'a>(&'a self, sql: &'a str) -> Query<'a, Sqlite, SqliteArguments<'a>>
     {
         sqlx::query(&sql)
         .bind(self.id.to_string())
@@ -130,6 +130,60 @@ impl UserSessionDbo
         .bind(self.key_expiration_time.to_string())
         .bind(&self.ip_addr)
         .bind(&self.fingerprint)
+    }
+}
+
+#[derive(Debug)]
+pub struct Session
+{
+    pub id: uuid::Uuid,
+    pub session_id: uuid::Uuid,
+    pub logged_in: Date,
+    pub audience: Vec<String>,
+    pub role: String,
+    pub key_expiration_time: Date,
+    pub ip_addr: String,
+    pub fingerprint: String
+}
+impl Session
+{
+    pub fn is_expired(&self) -> bool
+    {
+        self.key_expiration_time <= Date::now()
+    }
+}
+impl Into<Session> for UserSessionDbo
+{
+    fn into(self) -> Session 
+    {
+        Session 
+        { 
+            id: self.id,
+            session_id: self.session_id,
+            logged_in: self.logged_in,
+            audience: self.audience,
+            role: self.role,
+            key_expiration_time: self.key_expiration_time,
+            ip_addr: self.ip_addr,
+            fingerprint: self.fingerprint
+        }
+    }
+}
+impl Into<UserSessionDbo> for Session
+{
+    fn into(self) -> UserSessionDbo 
+    {
+        UserSessionDbo 
+        { 
+            id: self.id,
+            session_id: self.session_id,
+            logged_in: self.logged_in,
+            audience: self.audience,
+            role: self.role,
+            key_expiration_time: self.key_expiration_time,
+            ip_addr: self.ip_addr,
+            fingerprint: self.fingerprint
+        }
     }
 }
 
@@ -178,7 +232,7 @@ impl IAuthorizationRepository for AuthorizationRepository
             {
                 let session = new_session(id, role, refresh_key_lifetime_days, ip_addr, fingerprint, audience);
                 let session_id = session.session_id.clone();
-                let _ = self.insert_or_replace_session(session).await?;
+                let _ = self.insert_or_replace_session(session.into()).await?;
                 Ok(session_id)
             }
             //sessions count bigger than 3, replace older session with updated session
@@ -194,7 +248,7 @@ impl IAuthorizationRepository for AuthorizationRepository
                     session.key_expiration_time = Date::now().add_minutes(refresh_key_lifetime_days*60*24);
                     session.audience = audience;
                     let session_id = session.session_id.clone();
-                    let _ = self.insert_or_replace_session(session).await?;
+                    let _ = self.insert_or_replace_session(session.into()).await?;
                     Ok(session_id)
                 }
                 else 
@@ -202,7 +256,7 @@ impl IAuthorizationRepository for AuthorizationRepository
                     self.delete_session(&old_session.session_id).await?;
                     let session = new_session(id, role, refresh_key_lifetime_days, ip_addr, fingerprint, audience);
                     let session_id = session.session_id.clone();
-                    let _ = self.insert_or_replace_session(session).await?;
+                    let _ = self.insert_or_replace_session(session.into()).await?;
                     logger::warn!("Превышено максимальное количество одновременных сессий `{}` сессия `{}` заменена на {}", self.max_sessions_count, &old_session.session_id.to_string(), &session_id);
                     Ok(session_id)
                 }
@@ -218,7 +272,7 @@ impl IAuthorizationRepository for AuthorizationRepository
                     session.key_expiration_time = Date::now().add_minutes(refresh_key_lifetime_days*60*24);
                     session.audience = audience;
                     let session_id = session.session_id.clone();
-                    let _ = self.insert_or_replace_session(session).await?;
+                    let _ = self.insert_or_replace_session(session.into()).await?;
                     Ok(session_id)
                 }
                 //add new session for this user
@@ -226,7 +280,7 @@ impl IAuthorizationRepository for AuthorizationRepository
                 {
                     let session = new_session(id, role, refresh_key_lifetime_days, ip_addr, fingerprint, audience);
                     let session_id = session.session_id.clone();
-                    let _ = self.insert_or_replace_session(session).await?;
+                    let _ = self.insert_or_replace_session(session.into()).await?;
                     Ok(session_id)
                 }
             }
@@ -250,7 +304,7 @@ impl IAuthorizationRepository for AuthorizationRepository
             }
         })
     }
-    fn get_session(&self, session_id: &uuid::Uuid) -> impl std::future::Future<Output = Result<UserSessionDbo, Error>> + Send
+    fn get_session(&self, session_id: &uuid::Uuid) -> impl std::future::Future<Output = Result<Session, Error>> + Send
     {
         Box::pin(async move 
         {
@@ -261,7 +315,7 @@ impl IAuthorizationRepository for AuthorizationRepository
             .fetch_one(&*connection).await;
             if let Ok(session) = current_session
             {
-                Ok(session)
+                Ok(session.into())
             }
             else 
             {
@@ -271,12 +325,13 @@ impl IAuthorizationRepository for AuthorizationRepository
         })
         
     }
-    fn insert_or_replace_session(&self, session: UserSessionDbo) -> impl std::future::Future<Output = Result<(), Error>> + Send
+    fn insert_or_replace_session(&self, session: Session) -> impl std::future::Future<Output = Result<(), Error>> + Send
     {
         Box::pin(async move 
         {
             let connection = Arc::clone(&self.connection);
             let sql = ["INSERT OR REPLACE INTO sessions (", &UserSessionTable::get_all(), ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"].concat();
+            let session: UserSessionDbo = session.into();
             let _ = session.bind_all(&sql)
             .execute(&*connection).await?;
             Ok(())

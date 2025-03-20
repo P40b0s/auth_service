@@ -1,5 +1,5 @@
 mod db;
-pub use db::{IAuthorizationRepository, AuthorizationRepository, UserSessionDbo};
+pub use db::{IAuthorizationRepository, AuthorizationRepository, Session};
 mod error;
 pub use error::Error;
 mod role;

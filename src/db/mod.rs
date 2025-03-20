@@ -1,6 +1,6 @@
 mod connection;
 mod repository;
-pub use repository::{AuthorizationRepository, IAuthorizationRepository, UserSessionDbo};
+pub use repository::{AuthorizationRepository, IAuthorizationRepository, Session};
 
 #[cfg(test)]
 mod tests
