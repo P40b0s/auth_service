@@ -1,4 +1,5 @@
 use crate::{db::AuthorizationRepository, service::JwtService};
+#[derive(Clone)]
 pub struct AuthorizationService
 {
     pub repository: AuthorizationRepository,
