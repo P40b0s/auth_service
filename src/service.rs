@@ -46,6 +46,10 @@ impl JwtService
         let data = guard.validator().with_audience(audiences).with_roles(&roles_str).validate(token)?;
         Ok(data.claims)
     }
+    pub fn cookie_service(&self) -> &CookieService
+    {
+        &self.cookie
+    }
 }
 
 // fn test()
