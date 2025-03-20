@@ -5,7 +5,7 @@ pub use repository::{AuthorizationRepository, IAuthorizationRepository, UserSess
 #[cfg(test)]
 mod tests
 {
-    use crate::{jwt_service::JwtService, role::Role};
+    use crate::{service::JwtService, role::Role};
 
     use super::IAuthorizationRepository;
     const USER_ID: &str = "01959414-c7e9-76c2-a84f-5aa1443b1829";

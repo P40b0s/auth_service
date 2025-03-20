@@ -1,12 +1,13 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use jwt_authentification::{Claims, JWT};
+use jwt_authentification::{Claims, CookieService, JWT};
 use crate::error::Error;
 
 #[derive(Clone)]
 pub struct JwtService
 {
     jwt: Arc<Mutex<JWT>>,
+    cookie: Arc<CookieService>
 }
 impl JwtService
 {
@@ -15,6 +16,7 @@ impl JwtService
         Self
         {
             jwt: Arc::new(Mutex::new(JWT::new_in_file("key.pkcs8"))),
+            cookie: Arc::new(CookieService::new_with_key("key.pkcs8"))
         }
     }
     ///Генерирование нового access ключа
