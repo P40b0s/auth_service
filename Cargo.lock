@@ -1182,7 +1182,7 @@ dependencies = [
 [[package]]
 name = "jwt_authentification"
 version = "0.1.0"
-source = "git+https://github.com/P40b0s/jwt_authentification.git#f7903e7b2dc617f661c6f27a493c08224989391e"
+source = "git+https://github.com/P40b0s/jwt_authentification.git#887bd3cdceafd3a67a056a44672264c51afc20af"
 dependencies = [
  "cookie",
  "jsonwebtoken",
